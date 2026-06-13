@@ -1,0 +1,8 @@
+com.bitwig.extension
+com.bitwig.extension.api
+com.bitwig.extension.api.graphics
+com.bitwig.extension.api.opensoundcontrol
+com.bitwig.extension.api.util.midi
+com.bitwig.extension.callback
+com.bitwig.extension.controller
+com.bitwig.extension.controller.api
