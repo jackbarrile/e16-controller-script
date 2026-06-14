@@ -12,28 +12,22 @@ public class E16Extension extends ControllerExtension {
 
     private static final int CC_KNOB_FIRST = 1;   // knob 1
     private static final int CC_KNOB_LAST = 8;   // knob 8
-    // N.B. CC_MACRO = 12 in unmapped by design
-    private static final int CC_VOLUME = 13;  // knob 13 — track volume
-    private static final int CC_PAN = 14;  // knob 14 — track pan
-    private static final int CC_TRACK_NAV = 15;  // knob 15 — prev/next track
+    private static final int CC_MACRO = 12;       // knob 12 - unmapped, push toggles rec arm
+    private static final int CC_VOLUME = 13;      // knob 13 — track volume
+    private static final int CC_PAN = 14;         // knob 14 — track pan
+    private static final int CC_TRACK_NAV = 15;   // knob 15 — prev/next track
     private static final int CC_DEVICE_NAV = 16;  // knob 16 — prev/next device
+    private static final int CC_MACRO_PUSH = 32;  // Knob 12 push
 
     private static final int NUM_REMOTE_CONTROLS = 8;
 
     // -------------------------------------------------------------------------
     // Navigation — Accumulator Logic
-    //
-    // Tune TICKS_PER_STEP:
-    // If your encoder sends 1 CC message per physical detent, leave this at 1.
-    // If the encoder sends 4 messages before you feel a physical "click", set this to 4.
     // -------------------------------------------------------------------------
     private static final int TICKS_PER_STEP = 3;
 
     private int trackNavAccumulator = 0;
     private int deviceNavAccumulator = 0;
-
-    private int lastTrackNavRaw = -1;
-    private int lastDeviceNavRaw = -1;
 
     // State trackers for LED math
     private int currentTrackIdx = 0;
@@ -72,21 +66,21 @@ public class E16Extension extends ControllerExtension {
         final MidiOut midiOut = host.getMidiOutPort(0);
 
         for (int i = 0; i < NUM_REMOTE_CONTROLS; i++) {
-            final int ccOut = CC_KNOB_FIRST + i; // Maps to CCs 1-8
+            final int ccOut = CC_KNOB_FIRST + i;
 
-            // The "128" tells Bitwig to scale the parameter to a 0-127 integer range
-            remoteControlsPage.getParameter(i).value().addValueObserver(128, val -> {
-                // Send the absolute value back to the E16 to update the LED ring
-                midiOut.sendMidi(0xB0 | MIDI_CHANNEL, ccOut, val);
-            });
+            remoteControlsPage.getParameter(i).value().addValueObserver(128, val -> midiOut.sendMidi(0xB0 | MIDI_CHANNEL, ccOut, val));
         }
 
         cursorTrack.volume().value().addValueObserver(128, val -> midiOut.sendMidi(0xB0 | MIDI_CHANNEL, CC_VOLUME, val));
 
         cursorTrack.pan().value().addValueObserver(128, val -> midiOut.sendMidi(0xB0 | MIDI_CHANNEL, CC_PAN, val));
 
+        cursorTrack.arm().addValueObserver(isArmed -> {
+            int ledState = isArmed ? 127 : 0;
+            midiOut.sendMidi(0xB0 | MIDI_CHANNEL, CC_MACRO, ledState);
+        });
+
         // --- Knob 15: Track Nav (Percentage) ---
-        // Create a 128-slot bank so itemCount() can see up to 128 tracks
         TrackBank trackBank = host.createTrackBank(128, 0, 0);
 
         trackBank.itemCount().addValueObserver(count -> {
@@ -100,7 +94,6 @@ public class E16Extension extends ControllerExtension {
         });
 
         // --- Knob 16: Device Nav (Percentage) ---
-        // Create a 128-slot bank so itemCount() can see up to 128 devices
         DeviceBank deviceBank = cursorTrack.createDeviceBank(128);
 
         deviceBank.itemCount().addValueObserver(count -> {
@@ -130,9 +123,11 @@ public class E16Extension extends ControllerExtension {
     // MIDI handling
     // -------------------------------------------------------------------------
     private void onMidi(final int status, final int cc, final int value) {
+
         final int type = status & 0xF0;
         final int channel = status & 0x0F;
 
+        // --- STANDARD CC BOUNCER ---
         if (type != 0xB0 || channel != MIDI_CHANNEL) return;
 
         if (cc >= CC_KNOB_FIRST && cc <= CC_KNOB_LAST) {
@@ -146,26 +141,11 @@ public class E16Extension extends ControllerExtension {
             cursorTrack.pan().set(value / 127.0);
 
         } else if (cc == CC_TRACK_NAV) {
-            // 1. Initialize baseline on the very first touch
-            if (lastTrackNavRaw == -1) {
-                lastTrackNavRaw = value;
-                return;
-            }
-
-            // 2. Calculate true mathematical delta
-            int rawDelta = value - lastTrackNavRaw;
-
-            // 3. Handle endless encoder wrap-around (e.g., 127 stepping up to 0)
-            if (rawDelta > 64) rawDelta -= 128;
-            else if (rawDelta < -64) rawDelta += 128;
-
-            lastTrackNavRaw = value;
+            int rawDelta = relDelta(value);
 
             if (rawDelta != 0) {
-                // 4. Strip acceleration: force delta to exactly +1 or -1
                 int direction = rawDelta > 0 ? 1 : -1;
 
-                // 5. Anti-Windup
                 if ((direction > 0 && trackNavAccumulator < 0) ||
                         (direction < 0 && trackNavAccumulator > 0)) {
                     trackNavAccumulator = 0;
@@ -173,28 +153,17 @@ public class E16Extension extends ControllerExtension {
 
                 trackNavAccumulator += direction;
 
-                // 6. Hard reset on fire
                 if (trackNavAccumulator >= TICKS_PER_STEP) {
-                    cursorTrack.selectNext();
+                    cursorTrack.selectPrevious();
                     trackNavAccumulator = 0;
                 } else if (trackNavAccumulator <= -TICKS_PER_STEP) {
-                    cursorTrack.selectPrevious();
+                    cursorTrack.selectNext();
                     trackNavAccumulator = 0;
                 }
             }
 
         } else if (cc == CC_DEVICE_NAV) {
-            if (lastDeviceNavRaw == -1) {
-                lastDeviceNavRaw = value;
-                return;
-            }
-
-            int rawDelta = value - lastDeviceNavRaw;
-
-            if (rawDelta > 64) rawDelta -= 128;
-            else if (rawDelta < -64) rawDelta += 128;
-
-            lastDeviceNavRaw = value;
+            int rawDelta = relDelta(value);
 
             if (rawDelta != 0) {
                 int direction = rawDelta > 0 ? 1 : -1;
@@ -207,12 +176,18 @@ public class E16Extension extends ControllerExtension {
                 deviceNavAccumulator += direction;
 
                 if (deviceNavAccumulator >= TICKS_PER_STEP) {
-                    cursorDevice.selectNext();
-                    deviceNavAccumulator = 0;
-                } else if (deviceNavAccumulator <= -TICKS_PER_STEP) {
                     cursorDevice.selectPrevious();
                     deviceNavAccumulator = 0;
+                } else if (deviceNavAccumulator <= -TICKS_PER_STEP) {
+                    cursorDevice.selectNext();
+                    deviceNavAccumulator = 0;
                 }
+            }
+
+        } else if (cc == CC_MACRO_PUSH) {
+            if (value > 0) {
+                cursorTrack.arm().toggle();
+                getHost().println("[KNOB 12] Single Tap! Rec Arm Toggled.");
             }
         }
     }
@@ -220,15 +195,11 @@ public class E16Extension extends ControllerExtension {
     // -------------------------------------------------------------------------
     // LED Math Helpers
     // -------------------------------------------------------------------------
-
     private void updateTrackNavLed(final MidiOut midiOut) {
         int ledValue = 0;
 
         if (totalTracks > 1) {
-            // Calculate percentage: current / max_index
             double percent = (double) currentTrackIdx / (totalTracks - 1);
-
-            // Clamp to 0-1 just in case, then scale to MIDI 0-127
             percent = Math.max(0.0, Math.min(1.0, percent));
             ledValue = (int) Math.round(percent * 127);
         }
@@ -248,4 +219,15 @@ public class E16Extension extends ControllerExtension {
         midiOut.sendMidi(0xB0 | MIDI_CHANNEL, CC_DEVICE_NAV, ledValue);
     }
 
+    // -------------------------------------------------------------------------
+    // Relative CC Decoder
+    // -------------------------------------------------------------------------
+    private static int relDelta(final int value) {
+        if (value >= 1 && value <= 63) {
+            return value; // CW
+        } else if (value >= 65 && value <= 127) {
+            return value - 128; // CCW
+        }
+        return 0;
+    }
 }
