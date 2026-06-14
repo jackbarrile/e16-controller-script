@@ -57,3 +57,13 @@ Once the `.bwextension` file is in your folder, restart Bitwig (or reload your s
 * **Script crashes on load / Knobs are unresponsive:** Ensure the Definition file declares exactly `1` MIDI Out port. If it declares `0`, Bitwig will abort the script upon attempting to route the LED feedback.
 * **Record Arm push does nothing:** Confirm the output for the push action is explicitly set to `USB1` in the OXI App. If it is set to `ALL -USB`, the hardware will route the command to the physical TRS ports on the back of the unit and bypass your computer entirely. 
 * **Changes in the OXI App aren't working:** Clicking "Save" in the OXI App only saves to your computer's hard drive. You must click **Set**, and then drag the scene to the "On Device" list to overwrite the hardware's internal memory.
+
+## Support
+I hope you enjoy the script and it enhances your Bitwig and E16 experience! Most importantly, I hope it helps you make the great music you have within. Below, you'll find the music I make:
+
+- [Blugazer on Spotify](https://open.spotify.com/artist/0xIrZp36YYSHSm5J5BKKW4?si=-SwDz6psSRybKdK-8EIiZA0)
+- [Blugazer on SoundCloud](https://soundcloud.com/blugazer)
+- [Blugazer on Bandcamp](https://blugazer.bandcamp.com)
+- [Blugazer on Instagram](https://www.instagram.com/blugazer_music/)
+- [Blugazer on TikTok](tiktok.com/@blugazer)
+- [Blugazer on YouTube](https://www.youtube.com/channel/UCwp7uLa5IlMnFzS0zTpNnOg)
