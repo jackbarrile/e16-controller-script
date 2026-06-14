@@ -1,0 +1,7 @@
+target/
+*.bwextension
+.DS_Store
+*.class
+*.iml
+.idea/
+.vscode/
